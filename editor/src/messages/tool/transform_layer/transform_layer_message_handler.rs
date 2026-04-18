@@ -931,6 +931,77 @@ mod test_transform_layer {
 	}
 
 	#[tokio::test]
+	async fn test_grab_with_artboard_tool_active() {
+		// AI-assisted regression test (#4026): Grab should work with Artboard tool active.
+		let mut editor = EditorTestUtils::create();
+		editor.new_document().await;
+		// Create one artboard layer to transform.
+		editor.drag_tool(ToolType::Artboard, 0., 0., 100., 100., ModifierKeys::empty()).await;
+
+		let document = editor.active_document();
+		let layer = document.metadata().all_layers().next().unwrap();
+
+		// Keep the artboard selected and ensure the active tool is Artboard.
+		editor.handle_message(NodeGraphMessage::SelectedNodesSet { nodes: vec![layer.to_node()] }).await;
+		editor.handle_message(ToolMessage::ActivateTool { tool_type: ToolType::Artboard }).await;
+
+		let original_transform = get_layer_transform(&mut editor, layer).await.unwrap_or_default();
+
+		// Begin Grab and simulate pointer movement.
+		editor.move_mouse(100., 100., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor.handle_message(TransformLayerMessage::BeginGrab).await;
+		editor.move_mouse(150., 150., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor
+			.handle_message(TransformLayerMessage::PointerMove {
+				slow_key: Key::Shift,
+				increments_key: Key::Control,
+			})
+			.await;
+		// Commit the transform transaction.
+		editor.handle_message(TransformLayerMessage::ApplyTransformOperation { final_transform: true }).await;
+
+		let final_transform = get_layer_transform(&mut editor, layer).await.unwrap_or_default();
+
+		// Verify translation changed materially.
+		let translation_diff = (final_transform.translation - original_transform.translation).length();
+		assert!(translation_diff > 10., "Transform should have changed after grabbing an artboard with the Artboard tool active. Diff: {translation_diff}");
+	}
+
+	#[tokio::test]
+	async fn test_scale_with_artboard_tool_active() {
+		// AI-assisted regression test (#4026): Scale should work with Artboard tool active.
+		let mut editor = EditorTestUtils::create();
+		editor.new_document().await;
+		// Create one artboard layer to transform.
+		editor.drag_tool(ToolType::Artboard, 0., 0., 100., 100., ModifierKeys::empty()).await;
+
+		let document = editor.active_document();
+		let layer = document.metadata().all_layers().next().unwrap();
+
+		// Keep the artboard selected and ensure the active tool is Artboard.
+		editor.handle_message(NodeGraphMessage::SelectedNodesSet { nodes: vec![layer.to_node()] }).await;
+		editor.handle_message(ToolMessage::ActivateTool { tool_type: ToolType::Artboard }).await;
+
+		let original_transform = get_layer_transform(&mut editor, layer).await.unwrap_or_default();
+
+		// Begin Scale and type a 2x factor.
+		editor.move_mouse(100., 100., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor.handle_message(TransformLayerMessage::BeginScale).await;
+		editor.handle_message(TransformLayerMessage::TypeDigit { digit: 2 }).await;
+		// Commit the transform transaction.
+		editor.handle_message(TransformLayerMessage::ApplyTransformOperation { final_transform: true }).await;
+
+		let final_transform = get_layer_transform(&mut editor, layer).await.unwrap_or_default();
+
+		// Verify scale increased on both axes.
+		let scale_x = final_transform.matrix2.x_axis.length() / original_transform.matrix2.x_axis.length();
+		let scale_y = final_transform.matrix2.y_axis.length() / original_transform.matrix2.y_axis.length();
+
+		assert!(scale_x > 1.5, "Expected X scale to increase with Artboard tool active, got: {scale_x}");
+		assert!(scale_y > 1.5, "Expected Y scale to increase with Artboard tool active, got: {scale_y}");
+	}
+
+	#[tokio::test]
 	async fn test_scale_cancel() {
 		let mut editor = EditorTestUtils::create();
 		editor.new_document().await;

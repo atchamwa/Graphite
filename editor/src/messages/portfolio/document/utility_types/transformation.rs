@@ -508,8 +508,10 @@ impl<'a> Selected<'a> {
 		tool_type: &'a ToolType,
 		pen_handle: Option<&'a mut DVec2>,
 	) -> Self {
-		// If user is using the Select tool or Shape tool then use the original layer transforms
-		if (*tool_type == ToolType::Select || *tool_type == ToolType::Shape) && (*original_transforms == OriginalTransforms::Path(HashMap::new())) {
+		// AI-assisted fix (#4026): Artboard is layer-centric for G/R/S, so store and apply layer transforms (not path-point transforms).
+		if (*tool_type == ToolType::Select || *tool_type == ToolType::Shape || *tool_type == ToolType::Artboard)
+			&& (*original_transforms == OriginalTransforms::Path(HashMap::new()))
+		{
 			*original_transforms = OriginalTransforms::Layer(HashMap::new());
 		}
 
