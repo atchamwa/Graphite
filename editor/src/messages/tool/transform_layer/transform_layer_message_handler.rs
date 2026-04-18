@@ -945,7 +945,7 @@ mod test_transform_layer {
 		editor.handle_message(NodeGraphMessage::SelectedNodesSet { nodes: vec![layer.to_node()] }).await;
 		editor.handle_message(ToolMessage::ActivateTool { tool_type: ToolType::Artboard }).await;
 
-		let original_transform = get_layer_transform(&mut editor, layer).await.unwrap_or_default();
+		let before_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds before grab");
 
 		// Begin Grab and simulate pointer movement.
 		editor.move_mouse(100., 100., ModifierKeys::empty(), MouseKeys::NONE).await;
@@ -960,11 +960,11 @@ mod test_transform_layer {
 		// Commit the transform transaction.
 		editor.handle_message(TransformLayerMessage::ApplyTransformOperation { final_transform: true }).await;
 
-		let final_transform = get_layer_transform(&mut editor, layer).await.unwrap_or_default();
+		let after_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds after grab");
 
-		// Verify translation changed materially.
-		let translation_diff = (final_transform.translation - original_transform.translation).length();
-		assert!(translation_diff > 10., "Transform should have changed after grabbing an artboard with the Artboard tool active. Diff: {translation_diff}");
+		// Verify visible bounds changed materially.
+		let moved = (after_bounds[0] - before_bounds[0]).length() + (after_bounds[1] - before_bounds[1]).length();
+		assert!(moved > 10., "Artboard bounds should change after grabbing with the Artboard tool active. Delta: {moved}");
 	}
 
 	#[tokio::test]
@@ -982,7 +982,7 @@ mod test_transform_layer {
 		editor.handle_message(NodeGraphMessage::SelectedNodesSet { nodes: vec![layer.to_node()] }).await;
 		editor.handle_message(ToolMessage::ActivateTool { tool_type: ToolType::Artboard }).await;
 
-		let original_transform = get_layer_transform(&mut editor, layer).await.unwrap_or_default();
+		let before_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds before scale");
 
 		// Begin Scale and type a 2x factor.
 		editor.move_mouse(100., 100., ModifierKeys::empty(), MouseKeys::NONE).await;
@@ -991,14 +991,147 @@ mod test_transform_layer {
 		// Commit the transform transaction.
 		editor.handle_message(TransformLayerMessage::ApplyTransformOperation { final_transform: true }).await;
 
-		let final_transform = get_layer_transform(&mut editor, layer).await.unwrap_or_default();
+		let after_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds after scale");
 
-		// Verify scale increased on both axes.
-		let scale_x = final_transform.matrix2.x_axis.length() / original_transform.matrix2.x_axis.length();
-		let scale_y = final_transform.matrix2.y_axis.length() / original_transform.matrix2.y_axis.length();
+		// Verify visible bounds scaled on both axes.
+		let before_size = before_bounds[1] - before_bounds[0];
+		let after_size = after_bounds[1] - after_bounds[0];
+		let scale_x = after_size.x / before_size.x;
+		let scale_y = after_size.y / before_size.y;
 
 		assert!(scale_x > 1.5, "Expected X scale to increase with Artboard tool active, got: {scale_x}");
 		assert!(scale_y > 1.5, "Expected Y scale to increase with Artboard tool active, got: {scale_y}");
+	}
+
+	#[tokio::test]
+	async fn test_grab_shortcut_with_artboard_tool_active() {
+		// AI-assisted regression test (#4026): Keyboard shortcut G should begin Grab with Artboard tool active.
+		let mut editor = EditorTestUtils::create();
+		editor.new_document().await;
+		editor.drag_tool(ToolType::Artboard, 0., 0., 100., 100., ModifierKeys::empty()).await;
+
+		let document = editor.active_document();
+		let layer = document.metadata().all_layers().next().unwrap();
+
+		editor.handle_message(NodeGraphMessage::SelectedNodesSet { nodes: vec![layer.to_node()] }).await;
+		editor.handle_message(ToolMessage::ActivateTool { tool_type: ToolType::Artboard }).await;
+
+		let before_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds before shortcut grab");
+
+		editor.move_mouse(100., 100., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor.press(Key::KeyG, ModifierKeys::empty()).await;
+		editor.move_mouse(150., 150., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor.handle_message(TransformLayerMessage::ApplyTransformOperation { final_transform: true }).await;
+
+		let after_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds after shortcut grab");
+		let moved = (after_bounds[0] - before_bounds[0]).length() + (after_bounds[1] - before_bounds[1]).length();
+
+		assert!(moved > 10., "Shortcut G did not start grab for Artboard tool. Delta: {moved}");
+	}
+
+	#[tokio::test]
+	async fn test_scale_shortcut_with_artboard_tool_active() {
+		// AI-assisted regression test (#4026): Keyboard shortcut S should begin Scale with Artboard tool active.
+		let mut editor = EditorTestUtils::create();
+		editor.new_document().await;
+		editor.drag_tool(ToolType::Artboard, 0., 0., 100., 100., ModifierKeys::empty()).await;
+
+		let document = editor.active_document();
+		let layer = document.metadata().all_layers().next().unwrap();
+
+		editor.handle_message(NodeGraphMessage::SelectedNodesSet { nodes: vec![layer.to_node()] }).await;
+		editor.handle_message(ToolMessage::ActivateTool { tool_type: ToolType::Artboard }).await;
+
+		let before_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds before shortcut scale");
+
+		editor.move_mouse(100., 100., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor.press(Key::KeyS, ModifierKeys::empty()).await;
+		editor.press(Key::Digit2, ModifierKeys::empty()).await;
+		editor.handle_message(TransformLayerMessage::ApplyTransformOperation { final_transform: true }).await;
+
+		let after_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds after shortcut scale");
+		let before_size = before_bounds[1] - before_bounds[0];
+		let after_size = after_bounds[1] - after_bounds[0];
+		let scale_x = after_size.x / before_size.x;
+		let scale_y = after_size.y / before_size.y;
+
+		assert!(scale_x > 1.5, "Shortcut S did not start scale (X) for Artboard tool. Got: {scale_x}");
+		assert!(scale_y > 1.5, "Shortcut S did not start scale (Y) for Artboard tool. Got: {scale_y}");
+	}
+
+	#[tokio::test]
+	async fn test_grab_shortcut_after_click_selecting_artboard() {
+		// AI-assisted regression test (#4026): Click-selecting an artboard with Artboard tool should allow shortcut G.
+		let mut editor = EditorTestUtils::create();
+		editor.new_document().await;
+		editor.drag_tool(ToolType::Artboard, 0., 0., 100., 100., ModifierKeys::empty()).await;
+
+		// Select the artboard through normal Artboard tool interaction (no manual SelectedNodesSet message).
+		editor.click_tool(ToolType::Artboard, MouseKeys::LEFT, DVec2::new(50., 50.), ModifierKeys::empty()).await;
+
+		let layer = editor.get_selected_layer().await.expect("Artboard should be selected after click");
+		let before_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds before click-selected grab");
+
+		editor.move_mouse(50., 50., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor.press(Key::KeyG, ModifierKeys::empty()).await;
+		editor.move_mouse(100., 100., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor.handle_message(TransformLayerMessage::ApplyTransformOperation { final_transform: true }).await;
+
+		let after_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds after click-selected grab");
+		let moved = (after_bounds[0] - before_bounds[0]).length() + (after_bounds[1] - before_bounds[1]).length();
+
+		assert!(moved > 10., "Shortcut G did not work after click-selecting artboard. Delta: {moved}");
+	}
+
+	#[tokio::test]
+	async fn test_scale_shortcut_after_click_selecting_artboard() {
+		// AI-assisted regression test (#4026): Click-selecting an artboard with Artboard tool should allow shortcut S.
+		let mut editor = EditorTestUtils::create();
+		editor.new_document().await;
+		editor.drag_tool(ToolType::Artboard, 0., 0., 100., 100., ModifierKeys::empty()).await;
+
+		// Select the artboard through normal Artboard tool interaction (no manual SelectedNodesSet message).
+		editor.click_tool(ToolType::Artboard, MouseKeys::LEFT, DVec2::new(50., 50.), ModifierKeys::empty()).await;
+
+		let layer = editor.get_selected_layer().await.expect("Artboard should be selected after click");
+		let before_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds before click-selected scale");
+
+		editor.move_mouse(50., 50., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor.press(Key::KeyS, ModifierKeys::empty()).await;
+		editor.press(Key::Digit2, ModifierKeys::empty()).await;
+		editor.handle_message(TransformLayerMessage::ApplyTransformOperation { final_transform: true }).await;
+
+		let after_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds after click-selected scale");
+		let before_size = before_bounds[1] - before_bounds[0];
+		let after_size = after_bounds[1] - after_bounds[0];
+		let scale_x = after_size.x / before_size.x;
+		let scale_y = after_size.y / before_size.y;
+
+		assert!(scale_x > 1.5, "Shortcut S did not work after click-selecting artboard (X). Got: {scale_x}");
+		assert!(scale_y > 1.5, "Shortcut S did not work after click-selecting artboard (Y). Got: {scale_y}");
+	}
+
+	#[tokio::test]
+	async fn test_grab_shortcut_moves_artboard_bounds_after_click_selecting() {
+		// AI-assisted regression test (#4026): Confirm keyboard Grab moves the visible artboard bounds.
+		let mut editor = EditorTestUtils::create();
+		editor.new_document().await;
+		editor.drag_tool(ToolType::Artboard, 0., 0., 100., 100., ModifierKeys::empty()).await;
+
+		editor.click_tool(ToolType::Artboard, MouseKeys::LEFT, DVec2::new(50., 50.), ModifierKeys::empty()).await;
+		let layer = editor.get_selected_layer().await.expect("Artboard should be selected after click");
+
+		let before_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds before grab");
+
+		editor.move_mouse(50., 50., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor.press(Key::KeyG, ModifierKeys::empty()).await;
+		editor.move_mouse(100., 100., ModifierKeys::empty(), MouseKeys::NONE).await;
+		editor.handle_message(TransformLayerMessage::ApplyTransformOperation { final_transform: true }).await;
+
+		let after_bounds = editor.active_document().metadata().bounding_box_document(layer).expect("Artboard should have bounds after grab");
+		let moved = (after_bounds[0] - before_bounds[0]).length() + (after_bounds[1] - before_bounds[1]).length();
+
+		assert!(moved > 1., "Artboard bounds did not visibly move after keyboard grab. Delta: {moved}");
 	}
 
 	#[tokio::test]

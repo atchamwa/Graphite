@@ -34,9 +34,15 @@ pub struct InitialPoints {
 	handles: HashMap<HandleId, HandlePoint>,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct LayerTransformData {
+	transform: DAffine2,
+	artboard_bounds: Option<[DVec2; 2]>,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum OriginalTransforms {
-	Layer(HashMap<LayerNodeIdentifier, DAffine2>),
+	Layer(HashMap<LayerNodeIdentifier, LayerTransformData>),
 	Path(HashMap<LayerNodeIdentifier, InitialPoints>),
 }
 impl Default for OriginalTransforms {
@@ -69,7 +75,14 @@ impl OriginalTransforms {
 						continue;
 					}
 
-					layer_map.entry(layer).or_insert_with(|| Self::get_layer_transform(layer, network_interface).unwrap_or_default());
+					layer_map.entry(layer).or_insert_with(|| LayerTransformData {
+						transform: Self::get_layer_transform(layer, network_interface).unwrap_or_default(),
+						artboard_bounds: if network_interface.is_artboard(&layer.to_node(), &[]) {
+							network_interface.document_metadata().bounding_box_document(layer)
+						} else {
+							None
+						},
+					});
 				}
 			}
 			OriginalTransforms::Path(path_map) => {
@@ -564,10 +577,35 @@ impl<'a> Selected<'a> {
 		transform * Quad::from_box(bounds)
 	}
 
-	fn transform_layer(document_metadata: &DocumentMetadata, layer: LayerNodeIdentifier, original_transform: Option<&DAffine2>, transformation: DAffine2, responses: &mut VecDeque<Message>) {
-		let Some(&original_transform) = original_transform else { return };
+	fn transform_layer(
+		network_interface: &NodeNetworkInterface,
+		document_metadata: &DocumentMetadata,
+		layer: LayerNodeIdentifier,
+		layer_data: Option<&LayerTransformData>,
+		transformation: DAffine2,
+		responses: &mut VecDeque<Message>,
+	) {
+		let Some(layer_data) = layer_data else { return };
+
+		if network_interface.is_artboard(&layer.to_node(), &[]) {
+			let Some(bounds) = layer_data.artboard_bounds else { return };
+
+			let document_to_viewport = document_metadata.document_to_viewport;
+			let viewport_to_document = document_to_viewport.inverse();
+			let transformed_bounds = (viewport_to_document * transformation * document_to_viewport * Quad::from_box(bounds)).bounding_box();
+			let [min, max] = transformed_bounds;
+
+			responses.add(GraphOperationMessage::ResizeArtboard {
+				layer,
+				location: min.round().as_ivec2(),
+				dimensions: (max - min).round().as_ivec2(),
+			});
+
+			return;
+		}
+
 		let to = document_metadata.downstream_transform_to_viewport(layer);
-		let new = to.inverse() * transformation * to * original_transform;
+		let new = to.inverse() * transformation * to * layer_data.transform;
 		responses.add(GraphOperationMessage::TransformSet {
 			layer,
 			transform: new,
@@ -633,7 +671,14 @@ impl<'a> Selected<'a> {
 		// TODO: Cache the result of `shallowest_unique_layers` to avoid this heavy computation every frame of movement, see https://github.com/GraphiteEditor/Graphite/pull/481
 		for layer in self.network_interface.shallowest_unique_layers(&[]) {
 			match &mut self.original_transforms {
-				OriginalTransforms::Layer(layer_transforms) => Self::transform_layer(self.network_interface.document_metadata(), layer, layer_transforms.get(&layer), transformation, self.responses),
+				OriginalTransforms::Layer(layer_transforms) => Self::transform_layer(
+					self.network_interface,
+					self.network_interface.document_metadata(),
+					layer,
+					layer_transforms.get(&layer),
+					transformation,
+					self.responses,
+				),
 				OriginalTransforms::Path(path_transforms) => {
 					if let Some(initial_points) = path_transforms.get_mut(&layer) {
 						Self::transform_path(self.network_interface.document_metadata(), layer, initial_points, transformation, self.responses, transform_operation)
@@ -657,13 +702,24 @@ impl<'a> Selected<'a> {
 			let original_transform = &self.original_transforms;
 			match original_transform {
 				OriginalTransforms::Layer(hash) => {
-					let Some(matrix) = hash.get(&layer) else { continue };
-					self.responses.add(GraphOperationMessage::TransformSet {
-						layer,
-						transform: *matrix,
-						transform_in: TransformIn::Local,
-						skip_rerender: false,
-					});
+					let Some(layer_data) = hash.get(&layer) else { continue };
+
+					if self.network_interface.is_artboard(&layer.to_node(), &[])
+						&& let Some([min, max]) = layer_data.artboard_bounds
+					{
+						self.responses.add(GraphOperationMessage::ResizeArtboard {
+							layer,
+							location: min.round().as_ivec2(),
+							dimensions: (max - min).round().as_ivec2(),
+						});
+					} else {
+						self.responses.add(GraphOperationMessage::TransformSet {
+							layer,
+							transform: layer_data.transform,
+							transform_in: TransformIn::Local,
+							skip_rerender: false,
+						});
+					}
 				}
 				OriginalTransforms::Path(path) => {
 					for (&layer, points) in path {
