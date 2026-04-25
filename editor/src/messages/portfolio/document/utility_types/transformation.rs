@@ -512,7 +512,7 @@ impl<'a> Selected<'a> {
 		// If user is using the Select tool or Shape tool then use the original layer transforms.
 		// Added the artboard tool to the list of tools that can use the layer transorms
 		if ((*tool_type == ToolType::Select || *tool_type == ToolType::Shape || *tool_type == ToolType::Artboard) 
-				&& (*original_transforms == OriginalTransforms::Layer(HashMap::new()))) {
+				&& (*original_transforms == OriginalTransforms::Path(HashMap::new()))) {
 			*original_transforms = OriginalTransforms::Layer(HashMap::new());
 		}
 
