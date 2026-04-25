@@ -585,13 +585,15 @@ impl SelectToolData {
 
 /// Bounding boxes are unfortunately not axis aligned. The bounding boxes are found after a transformation is applied to all of the layers.
 /// This uses some rather confusing logic to determine what transform that should be.
-pub fn create_bounding_box_transform(document: &DocumentMessageHandler) -> DAffine2 {
-	// Update bounds
+// Added active_tool_type to check if the Artboard tool is being used
+pub fn create_bounding_box_transform(document: &DocumentMessageHandler, active_tool_type: ToolType) -> DAffine2 {
+	let include_artboards = active_tool_type == ToolType::Artboard;
+
 	document
 		.network_interface
 		.selected_nodes()
 		.selected_visible_and_unlocked_layers(&document.network_interface)
-		.find(|layer| !document.network_interface.is_artboard(&layer.to_node(), &[]))
+		.find(|layer| include_artboards || !document.network_interface.is_artboard(&layer.to_node(), &[]))
 		.map(|layer| document.metadata().transform_to_viewport_with_first_transform_node_if_group(layer, &document.network_interface))
 		.unwrap_or_default()
 }
@@ -638,7 +640,7 @@ impl Fsm for SelectToolFsmState {
 					}
 				}
 
-				let mut transform = create_bounding_box_transform(document);
+				let mut transform = create_bounding_box_transform(document, ToolType::Select);
 
 				// Check if the matrix is not invertible
 				let mut transform_tampered = false;
@@ -847,7 +849,7 @@ impl Fsm for SelectToolFsmState {
 
 				let has_layers = document.network_interface.selected_nodes().has_selected_nodes();
 				let draw_pivot = tool_data.pivot_gizmo.state.is_pivot() && overlay_context.visibility_settings.pivot() && has_layers;
-				tool_data.pivot_gizmo.pivot.recalculate_pivot(document);
+				tool_data.pivot_gizmo.pivot.recalculate_pivot(document, ToolType::Select);
 				let pivot = draw_pivot.then_some(tool_data.pivot_gizmo.pivot.pivot).flatten();
 				if let Some(pivot) = pivot {
 					let offset = tool_data
