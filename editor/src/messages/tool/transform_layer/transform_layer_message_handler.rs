@@ -148,7 +148,7 @@ impl MessageHandler<TransformLayerMessage, TransformLayerMessageContext<'_>> for
 			}
 
 			if !using_path_tool {
-				self.pivot_gizmo.recalculate_transform(document);
+				self.pivot_gizmo.recalculate_transform(document, tool_data.active_tool_type);
 				*selected.pivot = self.pivot_gizmo.position(document);
 				self.state.document_space_pivot = document.metadata().document_to_viewport.inverse().transform_point2(*selected.pivot);
 				self.grab_target = self.state.document_space_pivot;
@@ -348,7 +348,7 @@ impl MessageHandler<TransformLayerMessage, TransformLayerMessageContext<'_>> for
 					TransformType::Scale => TransformOperation::Scaling(Default::default()),
 				};
 				self.layer_bounding_box = selected.bounding_box();
-				let bounding_box = select_tool::create_bounding_box_transform(document);
+				let bounding_box = select_tool::create_bounding_box_transform(document, tool_data.active_tool_type);
 				self.state.local_transform_axes = [bounding_box.x_axis, bounding_box.y_axis].map(|axis| axis.normalize_or_zero());
 			}
 			TransformLayerMessage::BeginGrabPen { last_point, handle } | TransformLayerMessage::BeginRotatePen { last_point, handle } | TransformLayerMessage::BeginScalePen { last_point, handle } => {
