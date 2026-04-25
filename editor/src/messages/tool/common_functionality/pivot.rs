@@ -136,8 +136,8 @@ impl PivotGizmo {
 			.unwrap_or_else(|| self.pivot.transform_from_normalized.transform_point2(DVec2::splat(0.5)))
 	}
 
-	pub fn recalculate_transform(&mut self, document: &DocumentMessageHandler) -> DAffine2 {
-		self.pivot.recalculate_pivot(document);
+	pub fn recalculate_transform(&mut self, document: &DocumentMessageHandler, active_tool_type: ToolType) -> DAffine2 {
+		self.pivot.recalculate_pivot(document, active_tool_type);
 		self.pivot.transform_from_normalized
 	}
 
@@ -225,16 +225,19 @@ impl Default for Pivot {
 
 impl Pivot {
 	/// Recomputes the pivot position and transform.
-	pub fn recalculate_pivot(&mut self, document: &DocumentMessageHandler) {
+	/// `active_tool_type` controls whether artboards are considered: the Artboard tool
+	/// needs them included so the pivot lands on the selected artboard during G/S.
+	pub fn recalculate_pivot(&mut self, document: &DocumentMessageHandler, active_tool_type: ToolType) {
 		let selected = document.network_interface.selected_nodes();
 		self.empty = !selected.has_selected_nodes();
 		if !selected.has_selected_nodes() {
 			return;
 		}
 
+		let include_artboards = active_tool_type == ToolType::Artboard;
 		let transform = selected
 			.selected_visible_and_unlocked_layers(&document.network_interface)
-			.find(|layer| !document.network_interface.is_artboard(&layer.to_node(), &[]))
+			.find(|layer| include_artboards || !document.network_interface.is_artboard(&layer.to_node(), &[]))
 			.map(|layer| document.metadata().transform_to_viewport_with_first_transform_node_if_group(layer, &document.network_interface))
 			.unwrap_or_default();
 
