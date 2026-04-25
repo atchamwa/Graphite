@@ -3,6 +3,7 @@ use cargo_gpu::spirv_builder::{MetadataPrintout, SpirvMetadata};
 use std::path::PathBuf;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+	unsafe { std::env::remove_var("CARGO_BUILD_TARGET"); }
 	env_logger::builder().filter_level(log::LevelFilter::Debug).init();
 
 	// Skip building the shaders if they are provided externally

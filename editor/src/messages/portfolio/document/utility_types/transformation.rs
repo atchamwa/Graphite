@@ -508,8 +508,11 @@ impl<'a> Selected<'a> {
 		tool_type: &'a ToolType,
 		pen_handle: Option<&'a mut DVec2>,
 	) -> Self {
-		// If user is using the Select tool or Shape tool then use the original layer transforms
-		if (*tool_type == ToolType::Select || *tool_type == ToolType::Shape) && (*original_transforms == OriginalTransforms::Path(HashMap::new())) {
+
+		// If user is using the Select tool or Shape tool then use the original layer transforms.
+		// Added the artboard tool to the list of tools that can use the layer transorms
+		if ((*tool_type == ToolType::Select || *tool_type == ToolType::Shape || *tool_type == ToolType::Artboard) 
+				&& (*original_transforms == OriginalTransforms::Layer(HashMap::new()))) {
 			*original_transforms = OriginalTransforms::Layer(HashMap::new());
 		}
 
@@ -540,11 +543,13 @@ impl<'a> Selected<'a> {
 	pub fn bounding_box(&mut self) -> Quad {
 		let metadata = self.network_interface.document_metadata();
 
+		let using_artboard_tool = *self.tool_type == ToolType::Artboard; //Checks if the Artboard tool is being used
+
 		let mut transform = self
 			.network_interface
 			.selected_nodes()
 			.selected_visible_and_unlocked_layers(self.network_interface)
-			.find(|layer| !self.network_interface.is_artboard(&layer.to_node(), &[]))
+			.find(|layer| using_artboard_tool || !self.network_interface.is_artboard(&layer.to_node(), &[])) // allows the Artboard tool to be used on artboards
 			.map(|layer| metadata.transform_to_viewport(layer))
 			.unwrap_or(DAffine2::IDENTITY);
 
